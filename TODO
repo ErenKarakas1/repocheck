@@ -1,0 +1,4 @@
+- add scriptable output (json?)
+- add recursive walk?
+- support disabling certain checks?
+- support excluding repos?
