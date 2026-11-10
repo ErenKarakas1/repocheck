@@ -2,6 +2,7 @@ package health
 
 import (
 	"errors"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,6 +55,56 @@ func TestMayBeUnpushed(t *testing.T) {
 		if got := mayBeUnpushed(tt.b); got != tt.want {
 			t.Errorf("mayBeUnpushed(%+v) = %v, want %v", tt.b, got, tt.want)
 		}
+	}
+}
+
+func TestFindRepos(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"a/.git", "a/nested/.git", "b/c/.git", "b/d/e/.git", "empty"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "file"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "locked"), 0); err != nil {
+		t.Fatal(err)
+	}
+	links := map[string]string{"link": "b", "repolink": "a", "b/loop": "."}
+	for link, target := range links {
+		if err := os.Symlink(filepath.Join(root, target), filepath.Join(root, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tests := []struct {
+		depth          int
+		followSymlinks bool
+		want           []string
+	}{
+		{1, false, []string{"a"}},
+		{2, false, []string{"a", "b/c"}},
+		{math.MaxInt, false, []string{"a", "b/c", "b/d/e"}},            // not a/nested, which is inside a repository
+		{math.MaxInt, true, []string{"a", "b/c", "b/d/e", "repolink"}}, // links are only followed to repositories
+	}
+	for _, tt := range tests {
+		paths, err := findRepos(root, tt.depth, tt.followSymlinks)
+		if err != nil {
+			t.Fatalf("findRepos(%d, %v): %v", tt.depth, tt.followSymlinks, err)
+		}
+		var got []string
+		for _, path := range paths {
+			rel, _ := filepath.Rel(root, path)
+			got = append(got, filepath.ToSlash(rel))
+		}
+		if !slices.Equal(got, tt.want) {
+			t.Errorf("findRepos(%d, %v) = %q, want %q", tt.depth, tt.followSymlinks, got, tt.want)
+		}
+	}
+
+	if _, err := findRepos(filepath.Join(root, "missing"), 1, false); err == nil {
+		t.Error("findRepos of a missing directory succeeded, want error")
 	}
 }
 
@@ -122,14 +173,14 @@ func TestCheckItems(t *testing.T) {
 
 func TestWriteReport(t *testing.T) {
 	repos := []RepoResult{
-		{Path: "/src/broken", Err: errors.New("fatal: not a git repository\nhint: really")},
-		{Path: "/src/fine", Checks: []CheckResult{pass(HasRemote), pass(NoStashes)}},
-		{Path: "/src/messy", Checks: []CheckResult{
+		{Name: "broken", Path: "/src/broken", Err: errors.New("fatal: not a git repository\nhint: really")},
+		{Name: "fine", Path: "/src/fine", Checks: []CheckResult{pass(HasRemote), pass(NoStashes)}},
+		{Name: "messy", Path: "/src/messy", Checks: []CheckResult{
 			pass(HasRemote),
 			{FetchRemotes, Warning, "fatal: offline\nfatal: really"},
 			fail(NoStashes, "2 stashes"),
 		}},
-		{Path: "/src/offline", Checks: []CheckResult{pass(HasRemote), {FetchRemotes, Warning, "fatal: offline"}}},
+		{Name: "offline", Path: "/src/offline", Checks: []CheckResult{pass(HasRemote), {FetchRemotes, Warning, "fatal: offline"}}},
 	}
 
 	var b strings.Builder

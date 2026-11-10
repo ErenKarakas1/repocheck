@@ -10,10 +10,9 @@ A utility to check the health of the git repositories in a directory.
 
 Usage: repocheck [OPTIONS] [PATH]
 
-PATH is the directory whose subdirectories are checked (default: .)
-
 Options:
   -v, --verbose                Show every check, not just the ones with problems
+      --depth N                Max directory levels below PATH to search, 0 = no limit (default: 0)
       --follow-symlinks        Include symlinked repositories
       --fetch                  Run 'git fetch --all --prune' first, so ahead/behind counts are current
       --pull                   Fetch, then fast-forward the checked-out branch if the working tree is clean
@@ -49,9 +48,10 @@ Each repository is checked for:
 - Branches that are behind or diverged from their upstream, or have no upstream
 - Commits on a detached HEAD that aren't on any branch
 
-Only the immediate subdirectories of `PATH` are checked, and only if they contain a `.git` directory.
+A directory is checked if it contains a `.git` directory. Every directory under `PATH` is searched, except repositories
+(so nested repositories and submodules aren't checked). `--follow-symlinks` only follows to repositories.
 
-`--pull` only fast-forwards the checked-out branch, and only if it has no local commits and no changes to tracked files.
+`--pull` fast-forwards the checked-out branch, and only if it has no local commits and no changes to tracked files.
 
 Output is colored when writing to a terminal, unless `NO_COLOR` is set.
 

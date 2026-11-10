@@ -20,6 +20,7 @@ func TestParseArgs(t *testing.T) {
 		{[]string{"-v", "dir"}, health.Config{Path: "dir", BranchReportLimit: 10}, true},
 		{[]string{"--verbose", "--", "-dir"}, health.Config{Path: "-dir", BranchReportLimit: 10}, true},
 		{[]string{"-j", "4", "--branch-report-limit=0"}, health.Config{Jobs: 4}, false},
+		{[]string{"--depth", "3"}, health.Config{Depth: 3, BranchReportLimit: 10}, false},
 		{[]string{"--pull", "--follow-symlinks"}, health.Config{FollowSymlinks: true, Fetch: true, Pull: true, BranchReportLimit: 10}, false},
 	}
 	for _, tt := range tests {
@@ -31,7 +32,7 @@ func TestParseArgs(t *testing.T) {
 		}
 	}
 
-	for _, args := range [][]string{{"a", "b"}, {"--jobs", "-1"}, {"--branch-report-limit", "-1"}, {"-j", "x"}, {"--bogus"}} {
+	for _, args := range [][]string{{"a", "b"}, {"--jobs", "-1"}, {"--branch-report-limit", "-1"}, {"--depth", "-1"}, {"-j", "x"}, {"--bogus"}} {
 		if _, _, err := parseArgs(args); err == nil {
 			t.Errorf("parseArgs(%q) succeeded, want error", args)
 		}

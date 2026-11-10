@@ -21,10 +21,9 @@ const usage = `A utility to check the health of the git repositories in a direct
 
 Usage: repocheck [OPTIONS] [PATH]
 
-PATH is the directory whose subdirectories are checked (default: .)
-
 Options:
   -v, --verbose                Show every check, not just the ones with problems
+      --depth N                Max directory levels below PATH to search, 0 = no limit (default: 0)
       --follow-symlinks        Include symlinked repositories
       --fetch                  Run 'git fetch --all --prune' first, so ahead/behind counts are current
       --pull                   Fetch, then fast-forward the checked-out branch if the working tree is clean
@@ -99,6 +98,7 @@ func parseArgs(args []string) (cfg health.Config, verbose bool, err error) {
 
 	fs.BoolVar(&verbose, "v", false, "")
 	fs.BoolVar(&verbose, "verbose", false, "")
+	fs.IntVar(&cfg.Depth, "depth", 0, "")
 	fs.BoolVar(&cfg.FollowSymlinks, "follow-symlinks", false, "")
 	fs.BoolVar(&cfg.Fetch, "fetch", false, "")
 	fs.BoolVar(&cfg.Pull, "pull", false, "")
@@ -114,6 +114,9 @@ func parseArgs(args []string) (cfg health.Config, verbose bool, err error) {
 	}
 	cfg.Path = fs.Arg(0) // empty if not given
 
+	if cfg.Depth < 0 {
+		return cfg, false, errors.New("--depth must be non-negative")
+	}
 	if cfg.BranchReportLimit < 0 {
 		return cfg, false, errors.New("--branch-report-limit must be non-negative")
 	}

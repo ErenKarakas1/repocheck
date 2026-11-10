@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -32,11 +31,7 @@ func WriteReport(w io.Writer, repos []RepoResult, opts ReportOptions) error {
 	isWarning := func(c CheckResult) bool { return c.Status == Warning }
 	var withProblems, withErrors, withWarnings int
 
-	for i, repo := range repos {
-		if i > 0 {
-			fmt.Fprintln(bw)
-		}
-
+	for _, repo := range repos {
 		status := repo.Status()
 		switch status {
 		case Failed:
@@ -48,7 +43,7 @@ func WriteReport(w io.Writer, repos []RepoResult, opts ReportOptions) error {
 			withWarnings++
 		}
 
-		name := filepath.Base(repo.Path)
+		name := repo.Name
 		if opts.Verbose {
 			name = repo.Path
 		}
@@ -71,11 +66,9 @@ func WriteReport(w io.Writer, repos []RepoResult, opts ReportOptions) error {
 				fmt.Fprintln(bw)
 			}
 		}
-	}
-
-	if len(repos) > 0 {
 		fmt.Fprintln(bw)
 	}
+
 	fmt.Fprintf(bw, "%s, %d with problems, %s",
 		pluralize(len(repos), "repo", "repos"), withProblems, pluralize(withErrors, "error", "errors"))
 	if withWarnings > 0 {

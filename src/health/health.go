@@ -3,6 +3,7 @@ package health
 import (
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,6 +14,7 @@ import (
 
 type Config struct {
 	Path              string
+	Depth             int // how many directory levels below Path are searched for repositories, 0 = no limit
 	FollowSymlinks    bool
 	Fetch             bool // run `git fetch --all --prune` first, so ahead/behind counts are current
 	Pull              bool // fast-forward the checked-out branch when the working tree is clean
@@ -64,6 +66,7 @@ type CheckResult struct {
 }
 
 type RepoResult struct {
+	Name   string // path relative to Config.Path
 	Path   string
 	Checks []CheckResult
 	Err    error // git's error message if it couldn't check the repository
@@ -81,9 +84,12 @@ func (r RepoResult) Status() Status {
 	return status
 }
 
-// only returns an error if cfg.Path can't be read; a repository that can't be checked is reported in its RepoResult
 func CheckRepos(cfg Config) ([]RepoResult, error) {
-	paths, err := findRepos(cfg.Path, cfg.FollowSymlinks)
+	depth := cfg.Depth
+	if depth <= 0 {
+		depth = math.MaxInt
+	}
+	paths, err := findRepos(cfg.Path, depth, cfg.FollowSymlinks)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +107,8 @@ func CheckRepos(cfg Config) ([]RepoResult, error) {
 		wg.Go(func() {
 			for i := range indices {
 				checks, err := checkRepo(paths[i], cfg)
-				results[i] = RepoResult{Path: paths[i], Checks: checks, Err: err}
+				name, _ := filepath.Rel(cfg.Path, paths[i])
+				results[i] = RepoResult{Name: name, Path: paths[i], Checks: checks, Err: err}
 			}
 		})
 	}
@@ -113,20 +120,28 @@ func CheckRepos(cfg Config) ([]RepoResult, error) {
 	return results, nil
 }
 
-// returns the git repositories directly under dir, sorted by name
-func findRepos(dir string, followSymlinks bool) ([]string, error) {
-	entries, err := os.ReadDir(dir) // sorted by name
+// returns the git repositories under dir, up to depth levels down, sorted by path
+//
+// repositories aren't searched for nested ones (e.g. submodules), and symlinks are
+// only followed to repositories, so a link loop can't make it search forever
+func findRepos(dir string, depth int, followSymlinks bool) ([]string, error) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
 
 	var repos []string
 	for _, entry := range entries {
-		if entry.Type()&fs.ModeSymlink != 0 && !followSymlinks {
+		isLink := entry.Type()&fs.ModeSymlink != 0
+		if !entry.IsDir() && !(isLink && followSymlinks) {
 			continue
 		}
-		if path := filepath.Join(dir, entry.Name()); isGitRepo(path) {
+		path := filepath.Join(dir, entry.Name())
+		if isGitRepo(path) {
 			repos = append(repos, path)
+		} else if entry.IsDir() && depth > 1 {
+			nested, _ := findRepos(path, depth-1, followSymlinks)
+			repos = append(repos, nested...)
 		}
 	}
 	return repos, nil
@@ -152,8 +167,7 @@ func checkRepo(repo string, cfg Config) ([]CheckResult, error) {
 		checks = append(checks, fail(HasRemote, ""))
 	}
 
-	// unlike the other checks, a failed fetch (offline, no access) is only a warning. the local checks still
-	// run, against what was last fetched
+	// a failed fetch (offline, no access) is a warning. the local checks still run against what was last fetched
 	if cfg.Fetch && hasRemote {
 		if _, err := git(repo, "fetch", "--all", "--prune", "--quiet"); err != nil {
 			checks = append(checks, CheckResult{Check: FetchRemotes, Status: Warning, Detail: err.Error()})
@@ -203,7 +217,7 @@ func pullCurrentBranch(repo string, wt workingTree, branches []branch) (CheckRes
 		return CheckResult{}, false
 	}
 	head := &branches[i]
-	if head.upstream == "" || head.upstreamGone || head.behind == 0 || head.ahead > 0 {
+	if head.behind == 0 || head.ahead > 0 {
 		return CheckResult{}, false
 	}
 
